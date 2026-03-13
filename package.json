@@ -1,0 +1,23 @@
+{
+  "name": "dubly",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "tauri": "cargo tauri"
+  },
+  "dependencies": {
+    "@pixiv/three-vrm": "^3.3.3",
+    "@tauri-apps/api": "^2.5.0",
+    "@tauri-apps/plugin-store": "^2.2.0",
+    "three": "^0.175.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.5.0",
+    "@types/three": "^0.175.0",
+    "typescript": "^5.8.0",
+    "vite": "^6.3.0"
+  }
+}

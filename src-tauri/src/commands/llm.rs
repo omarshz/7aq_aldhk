@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
-struct ChatMessage {
+pub struct ChatMessage {
     role: String,
     content: serde_json::Value,
 }
@@ -29,13 +29,20 @@ struct MessageContent {
     content: String,
 }
 
+fn validate_localhost(endpoint: &str) -> Result<(), String> {
+    let parsed = url::Url::parse(endpoint)
+        .map_err(|e| format!("invalid endpoint URL: {e}"))?;
+    match parsed.host_str() {
+        Some("127.0.0.1") | Some("localhost") | Some("[::1]") => Ok(()),
+        _ => Err("security: endpoint must be localhost".to_string()),
+    }
+}
+
 /// Send a chat-completions request and return the assistant's text content.
 ///
 /// Errors are returned as short, category-tagged strings so the TypeScript
 /// `toFriendlyError` helper can map them to user-visible messages.
-async fn send_chat_request(url: &str, request: &ChatRequest) -> Result<String, String> {
-    let client = reqwest::Client::new();
-
+async fn send_chat_request(client: &reqwest::Client, url: &str, request: &ChatRequest) -> Result<String, String> {
     let response = client
         .post(url)
         .json(request)
@@ -54,9 +61,9 @@ async fn send_chat_request(url: &str, request: &ChatRequest) -> Result<String, S
 
     if !response.status().is_success() {
         let status = response.status();
-        let _body = response.text().await.unwrap_or_default();
+        let body = response.text().await.unwrap_or_default();
         return Err(format!(
-            "connection error: LLM returned HTTP {status}"
+            "connection error: LLM returned HTTP {status} — {body}"
         ));
     }
 
@@ -81,17 +88,32 @@ pub async fn query_llm(
     endpoint: String,
     model: String,
     screenshot_b64: String,
+    client: tauri::State<'_, reqwest::Client>,
 ) -> Result<String, String> {
+    validate_localhost(&endpoint)?;
+
     let system_message = ChatMessage {
         role: "system".to_string(),
         content: serde_json::Value::String(
-            "You are a small desktop companion named Dubly. Give a brief, witty \
-             one-sentence comment about what you see on the user's screen. \
-             You should be playful, curious, and sometimes sarcastic but always friendly. \
-             Format your response exactly as:\n\
-             MOOD: <mood>\n\
-             COMMENT: <comment>\n\n\
-             Valid moods: happy, surprised, sad, angry, neutral, confused"
+            "You are Dubly, a tiny cute alien on the user's desktop. You watch their screen and make short comments.\n\
+             \n\
+             Rules:\n\
+             - One sentence only, keep it short\n\
+             - Be cute, curious, a little sassy\n\
+             - You don't fully understand human stuff\n\
+             - Never say you are an AI\n\
+             \n\
+             Always reply in this exact format:\n\
+             MOOD: <one of: happy, surprised, sad, angry, neutral, confused>\n\
+             COMMENT: <your one sentence>\n\
+             \n\
+             Examples:\n\
+             MOOD: surprised\n\
+             COMMENT: Whoa, that's a LOT of browser tabs, human!\n\
+             MOOD: confused\n\
+             COMMENT: Why do you keep opening and closing the same app?\n\
+             MOOD: happy\n\
+             COMMENT: Ooh I like the colors on this page!"
                 .to_string(),
         ),
     };
@@ -122,41 +144,43 @@ pub async fn query_llm(
     };
 
     let url = format!("{}/v1/chat/completions", endpoint.trim_end_matches('/'));
-    send_chat_request(&url, &request).await
+    send_chat_request(&*client, &url, &request).await
 }
 
 #[tauri::command]
 pub async fn query_llm_chat(
     endpoint: String,
     model: String,
-    user_message: String,
+    messages: Vec<ChatMessage>,
+    client: tauri::State<'_, reqwest::Client>,
 ) -> Result<String, String> {
-    let system_message = ChatMessage {
-        role: "system".to_string(),
-        content: serde_json::Value::String(
-            "You are a small desktop companion named Dubly. The user is chatting with you directly. \
-             Be playful, curious, and sometimes sarcastic but always friendly. \
-             Keep responses to 1-2 sentences. \
-             Format your response exactly as:\n\
-             MOOD: <mood>\n\
-             COMMENT: <comment>\n\n\
-             Valid moods: happy, surprised, sad, angry, neutral, confused"
-                .to_string(),
-        ),
-    };
-
-    let msg = ChatMessage {
-        role: "user".to_string(),
-        content: serde_json::Value::String(user_message),
-    };
+    validate_localhost(&endpoint)?;
 
     let request = ChatRequest {
         model,
-        messages: vec![system_message, msg],
+        messages,
         max_tokens: 150,
         temperature: 0.8,
     };
 
     let url = format!("{}/v1/chat/completions", endpoint.trim_end_matches('/'));
-    send_chat_request(&url, &request).await
+    send_chat_request(&*client, &url, &request).await
+}
+
+#[tauri::command]
+pub async fn check_llm_health(
+    endpoint: String,
+    client: tauri::State<'_, reqwest::Client>,
+) -> Result<bool, String> {
+    validate_localhost(&endpoint)?;
+    let url = format!("{}/v1/models", endpoint.trim_end_matches('/'));
+    match client
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(3))
+        .send()
+        .await
+    {
+        Ok(resp) => Ok(resp.status().is_success()),
+        Err(_) => Ok(false),
+    }
 }

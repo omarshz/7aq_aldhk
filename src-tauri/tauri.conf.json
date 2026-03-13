@@ -16,8 +16,8 @@
       {
         "label": "main",
         "title": "Dubly",
-        "width": 450,
-        "height": 650,
+        "width": 250,
+        "height": 360,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
@@ -27,7 +27,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src http://127.0.0.1:* http://localhost:*"
     },
     "trayIcon": {
       "id": "main-tray",

@@ -1,19 +1,22 @@
-import { invoke } from '@tauri-apps/api/core';
 import { parseResponse } from '../pipeline/ResponseParser';
+import { toFriendlyError } from '../utils/errorMessages';
 import type { AvatarManager } from '../avatar/AvatarManager';
 import type { SpeechBubble } from './SpeechBubble';
 import type { LLMClient } from '../pipeline/LLMClient';
+import type { ScreenshotPipeline } from '../pipeline/ScreenshotPipeline';
 
 export class ChatInput {
   private container: HTMLDivElement;
   private input: HTMLInputElement;
   private sendBtn: HTMLButtonElement;
   private isProcessing = false;
+  private history: Array<{role: string; content: string}> = [];
 
   constructor(
     private avatarManager: AvatarManager,
     private speechBubble: SpeechBubble,
-    private llmClient: LLMClient
+    private llmClient: LLMClient,
+    private pipeline: ScreenshotPipeline
   ) {
     // Create DOM elements
     this.container = document.createElement('div');
@@ -22,18 +25,28 @@ export class ChatInput {
 
     this.input = document.createElement('input');
     this.input.type = 'text';
-    this.input.placeholder = 'Say something to Dubly...';
+    this.input.placeholder = 'Say something...';
 
     this.sendBtn = document.createElement('button');
     this.sendBtn.textContent = 'Send';
 
+    const lookBtn = document.createElement('button');
+    lookBtn.textContent = 'Look';
+    lookBtn.className = 'look-btn-inline';
+    lookBtn.title = 'Look at my screen now';
+
     this.container.appendChild(this.input);
     this.container.appendChild(this.sendBtn);
+    this.container.appendChild(lookBtn);
     document.body.appendChild(this.container);
 
     // ----- Event listeners -----
 
     this.sendBtn.addEventListener('click', () => this.send());
+    lookBtn.addEventListener('click', () => {
+      this.hide();
+      this.pipeline.runPipeline();
+    });
 
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') this.send();
@@ -82,18 +95,48 @@ export class ChatInput {
     if (!text || this.isProcessing) return;
 
     this.isProcessing = true;
+    this.pipeline.pause();
     this.input.value = '';
     this.hide();
 
+    const SYSTEM_PROMPT =
+      'You are Dubly, a tiny cute alien on the user\'s desktop. The user is chatting with you.\n' +
+      '\n' +
+      'Rules:\n' +
+      '- 1-2 sentences max\n' +
+      '- Be cute, curious, a little sassy\n' +
+      '- You don\'t fully understand human stuff\n' +
+      '- Never say you are an AI\n' +
+      '\n' +
+      'Always reply in this exact format:\n' +
+      'MOOD: <one of: happy, surprised, sad, angry, neutral, confused>\n' +
+      'COMMENT: <your reply>\n' +
+      '\n' +
+      'Examples:\n' +
+      'MOOD: happy\n' +
+      'COMMENT: Hi human! What are we doing today?\n' +
+      'MOOD: confused\n' +
+      'COMMENT: You want me to explain... feelings? I barely understand gravity!';
+
     try {
-      const config = this.llmClient.getConfig();
-      const response = await invoke<string>('query_llm_chat', {
-        endpoint: config.endpoint,
-        model: config.model,
-        userMessage: text,
-      });
+      this.speechBubble.showThinking();
+
+      const messages = [
+        { role: 'system', content: SYSTEM_PROMPT },
+        ...this.history.slice(-10),
+        { role: 'user', content: text },
+      ];
+
+      const response = await this.llmClient.queryLLMChat(messages);
 
       const parsed = parseResponse(response);
+
+      this.history.push({ role: 'user', content: text });
+      this.history.push({ role: 'assistant', content: parsed.comment });
+      // Keep history bounded
+      if (this.history.length > 20) {
+        this.history = this.history.slice(-20);
+      }
 
       // Display response
       this.avatarManager.setMood(parsed.mood);
@@ -104,35 +147,15 @@ export class ChatInput {
       await this.speechBubble.waitForHide();
     } catch (error) {
       console.error('Chat error:', error);
-      const friendly = chatFriendlyError(error);
+      const friendly = toFriendlyError(error);
       this.avatarManager.setMood('confused');
       this.avatarManager.setTalking(true);
       await this.speechBubble.show(friendly);
       this.avatarManager.setTalking(false);
       await this.speechBubble.waitForHide();
     } finally {
+      this.pipeline.resume();
       this.isProcessing = false;
     }
   }
-}
-
-/** Convert a raw error into a short, user-facing message for the speech bubble. */
-function chatFriendlyError(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "Hmm, I couldn't think of a response...";
-  }
-
-  const msg = error.message.toLowerCase();
-
-  if (msg.includes('connection') || msg.includes('refused') || msg.includes('network')) {
-    return "I can't reach my brain right now -- is LM Studio running?";
-  }
-  if (msg.includes('timeout') || msg.includes('timed out')) {
-    return 'I took too long thinking about that... try again?';
-  }
-  if (msg.includes('parse') || msg.includes('json')) {
-    return 'I got a weird response and could not make sense of it.';
-  }
-
-  return "Hmm, I couldn't think of a response. Try again in a moment!";
 }

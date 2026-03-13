@@ -119,7 +119,7 @@ export class AvatarManager {
 
     // Expand the bounding box by a padding factor so animations that
     // swing arms or shift the body still stay in frame.
-    const paddingFactor = 1.25;
+    const paddingFactor = 1.15;
     const paddedHeight = size.y * paddingFactor;
     const paddedWidth = size.x * paddingFactor;
 
@@ -148,9 +148,9 @@ export class AvatarManager {
     const delta = this.clock.getDelta();
 
     if (this.vrm) {
-      this.vrm.update(delta);
       this.animationController?.update(delta);
       this.expressionController?.update(delta);
+      this.vrm.update(delta);
     }
 
     this.renderer.render(this.scene, this.camera);
@@ -171,6 +171,7 @@ export class AvatarManager {
 
   setMood(mood: Mood): void {
     this.expressionController?.setMood(mood);
+    this.animationController?.setMood(mood);
   }
 
   setTalking(talking: boolean): void {

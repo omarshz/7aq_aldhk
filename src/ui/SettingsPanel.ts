@@ -1,5 +1,10 @@
 import type { ScreenshotPipeline } from '../pipeline/ScreenshotPipeline';
 
+/** Escape a string for safe inclusion in an HTML attribute value. */
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 interface Settings {
   screenshotInterval: number;
   endpoint: string;
@@ -32,16 +37,16 @@ export class SettingsPanel {
       <h2>Settings</h2>
       <label>Screenshot Interval (seconds)</label>
       <input type="number" id="setting-interval" min="10" max="120"
-             value="${this.settings.screenshotInterval}" />
+             value="${escapeAttr(String(this.settings.screenshotInterval))}" />
       <label>LM Studio Endpoint</label>
       <input type="text" id="setting-endpoint"
-             value="${this.settings.endpoint}" />
+             value="${escapeAttr(this.settings.endpoint)}" />
       <label>Model Name</label>
       <input type="text" id="setting-model"
-             value="${this.settings.model}" placeholder="default" />
+             value="${escapeAttr(this.settings.model)}" placeholder="default" />
       <label>Custom VRM Path</label>
       <input type="text" id="setting-vrm"
-             value="${this.settings.vrmPath}" placeholder="Leave empty for default" />
+             value="${escapeAttr(this.settings.vrmPath)}" placeholder="Leave empty for default" />
       <label class="checkbox-label">
         <input type="checkbox" id="setting-movement"
                ${this.settings.movementEnabled ? 'checked' : ''} />
@@ -54,9 +59,12 @@ export class SettingsPanel {
     `;
 
     this.element.querySelector('#settings-save')!.addEventListener('click', () => {
-      this.settings.screenshotInterval = parseInt(
+      const parsedInterval = parseInt(
         (this.element.querySelector('#setting-interval') as HTMLInputElement).value
       );
+      this.settings.screenshotInterval = (Number.isFinite(parsedInterval) && parsedInterval >= 10 && parsedInterval <= 120)
+        ? parsedInterval
+        : 30;
       this.settings.endpoint = (
         this.element.querySelector('#setting-endpoint') as HTMLInputElement
       ).value;
@@ -121,6 +129,10 @@ export class SettingsPanel {
   }
 
   private saveSettings(): void {
-    localStorage.setItem('dubly-settings', JSON.stringify(this.settings));
+    try {
+      localStorage.setItem('dubly-settings', JSON.stringify(this.settings));
+    } catch {
+      // Storage full or unavailable -- settings will still apply for this session
+    }
   }
 }

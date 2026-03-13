@@ -26,6 +26,13 @@ export class ExpressionController {
         }
       }
     }
+
+    // Log which mood expressions the model supports for debugging
+    const moodExpressions = ['happy', 'surprised', 'sad', 'angry'];
+    const missing = moodExpressions.filter(e => !this.availableExpressions.has(e));
+    if (missing.length > 0) {
+      console.warn(`VRM model missing mood expressions: ${missing.join(', ')} — using body language fallback`);
+    }
   }
 
   /** Returns true if the loaded VRM has the given expression preset. */
@@ -93,7 +100,7 @@ export class ExpressionController {
       if (!this.hasExpression(name)) continue;
 
       const current = this.currentExpressions[name] ?? 0;
-      const newVal = current + (target - current) * Math.min(lerpSpeed, 1);
+      const newVal = Math.max(0, Math.min(1, current + (target - current) * Math.min(lerpSpeed, 1)));
       this.currentExpressions[name] = newVal;
       this.vrm.expressionManager?.setValue(name, newVal);
     }

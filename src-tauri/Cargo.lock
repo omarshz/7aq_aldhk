@@ -1004,6 +1004,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-store",
  "tokio",
+ "url",
  "xcap",
 ]
 

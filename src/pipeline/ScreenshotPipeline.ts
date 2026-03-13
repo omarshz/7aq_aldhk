@@ -1,5 +1,6 @@
 import { LLMClient } from './LLMClient';
 import { parseResponse } from './ResponseParser';
+import { toFriendlyError } from '../utils/errorMessages';
 import type { AvatarManager } from '../avatar/AvatarManager';
 import type { MovementController } from '../avatar/MovementController';
 import type { SpeechBubble } from '../ui/SpeechBubble';
@@ -50,6 +51,7 @@ export class ScreenshotPipeline {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
+    this.isProcessing = false;
   }
 
   pause(): void {
@@ -74,7 +76,7 @@ export class ScreenshotPipeline {
     }
   }
 
-  private async runPipeline(): Promise<void> {
+  async runPipeline(): Promise<void> {
     if (this.isProcessing || this.paused) return;
     this.isProcessing = true;
 
@@ -82,6 +84,8 @@ export class ScreenshotPipeline {
     this.movementController.pause();
 
     try {
+      this.speechBubble.showThinking();
+
       // Step 1: Capture screen
       const screenshot = await this.llmClient.captureScreen();
 
@@ -125,28 +129,4 @@ export class ScreenshotPipeline {
     // Wait for auto-hide
     await this.speechBubble.waitForHide();
   }
-}
-
-/** Map raw error objects to short, friendly messages for the speech bubble. */
-function toFriendlyError(error: unknown): string {
-  if (!(error instanceof Error)) {
-    return "I can't seem to see anything right now!";
-  }
-
-  const msg = error.message.toLowerCase();
-
-  if (msg.includes('connection') || msg.includes('refused') || msg.includes('network')) {
-    return "I can't reach my brain right now -- is LM Studio running?";
-  }
-  if (msg.includes('timeout') || msg.includes('timed out')) {
-    return 'My brain is taking too long to respond... try again in a moment!';
-  }
-  if (msg.includes('capture') || msg.includes('screenshot') || msg.includes('monitor')) {
-    return "I couldn't get a look at your screen. Something blocked my view!";
-  }
-  if (msg.includes('parse') || msg.includes('json')) {
-    return 'I got a weird response and could not make sense of it.';
-  }
-
-  return "Hmm, something went wrong. I'll try again shortly!";
 }

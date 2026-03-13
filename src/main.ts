@@ -49,12 +49,17 @@ async function main() {
   });
 
   // Chat input -- uses the same shared speechBubble
-  const chatInput = new ChatInput(avatarManager, speechBubble, pipeline.getLLMClient());
+  const chatInput = new ChatInput(avatarManager, speechBubble, pipeline.getLLMClient(), pipeline);
 
-  // Click-through logic
-  setupClickThrough(appWindow, avatarManager, chatInput);
-
-  // Click avatar to toggle chat (single click) or drag (double click)
+  // ---------------------------------------------------------------------------
+  // Avatar interaction: click = toggle chat, drag = move window.
+  //
+  // No setIgnoreCursorEvents needed. On macOS with Tauri v2 transparent:true
+  // and macOSPrivateApi:true, transparent pixels already pass through clicks
+  // natively at the OS level. The canvas has pointer-events:none in CSS and
+  // UI elements have pointer-events:auto, so only interactive elements receive
+  // mouse events.
+  // ---------------------------------------------------------------------------
   setupAvatarClick(appWindow, avatarManager, chatInput);
 
   // Listen for tray pause toggle
@@ -73,130 +78,69 @@ async function main() {
   // Start the pipeline
   pipeline.start();
 
+  // LLM connection status indicator
+  const statusDot = document.getElementById('llm-status')!;
+  const llmClient = pipeline.getLLMClient();
+
+  async function pollHealth() {
+    const healthy = await llmClient.checkHealth();
+    statusDot.classList.toggle('connected', healthy);
+    statusDot.classList.toggle('disconnected', !healthy);
+    statusDot.title = healthy ? 'LM Studio: connected' : 'LM Studio: disconnected';
+  }
+  pollHealth();
+  setInterval(pollHealth, 30000);
+
   console.log('Dubly initialized!');
 }
 
 // ---------------------------------------------------------------------------
-// Click-through: transparent areas pass events to the desktop, but UI
-// elements and the avatar remain interactive.
+// Avatar click: click = toggle chat, click-and-drag = move window.
 //
-// Key problems solved here:
-//   1. setIgnoreCursorEvents is async. Rapid mousemoves can cause
-//      out-of-order resolution, e.g. a stale "ignore=true" landing after a
-//      newer "ignore=false". We guard against this with a monotonic sequence
-//      counter -- only the latest call is allowed to write.
-//   2. When the chat input is focused the user must be able to type and
-//      select text. We must never flip to ignore=true while a UI element is
-//      under the cursor or while the chat input is focused.
-//   3. On macOS/Tauri the webview continues to receive mousemove events
-//      even when ignoring cursor events, which lets us un-ignore as soon as
-//      the cursor re-enters an interactive area.
-// ---------------------------------------------------------------------------
-function setupClickThrough(
-  appWindow: ReturnType<typeof getCurrentWindow>,
-  avatarManager: AvatarManager,
-  chatInput: ChatInput
-) {
-  let currentlyIgnoring = false;
-  let seq = 0; // monotonic counter to prevent out-of-order async writes
-
-  async function setIgnore(ignore: boolean) {
-    if (ignore === currentlyIgnoring) return;
-
-    const mySeq = ++seq;
-    try {
-      await appWindow.setIgnoreCursorEvents(ignore);
-
-      // Only commit the state if no newer call has been issued while we
-      // were awaiting.
-      if (mySeq === seq) {
-        currentlyIgnoring = ignore;
-      }
-    } catch {
-      // Ignore errors from rapid cursor events during window transitions
-    }
-  }
-
-  function isOverUIElement(e: MouseEvent): boolean {
-    const elementUnder = document.elementFromPoint(e.clientX, e.clientY);
-    if (!elementUnder) return false;
-
-    const speechBubbleEl = document.getElementById('speech-bubble');
-    const settingsPanelEl = document.getElementById('settings-panel');
-    const chatInputEl = document.getElementById('chat-input');
-
-    if (speechBubbleEl?.contains(elementUnder)) return true;
-    if (settingsPanelEl?.contains(elementUnder)) return true;
-    if (chatInputEl?.contains(elementUnder)) return true;
-
-    return false;
-  }
-
-  document.addEventListener('mousemove', (e) => {
-    // If the chat input is focused, never ignore -- the user is typing.
-    if (chatInput.isFocused()) {
-      setIgnore(false);
-      return;
-    }
-
-    // Over a UI element -- keep interactive
-    if (isOverUIElement(e)) {
-      setIgnore(false);
-      return;
-    }
-
-    // Over the avatar -- keep interactive
-    const hitsAvatar = avatarManager.hitTest(e.clientX, e.clientY);
-    setIgnore(!hitsAvatar);
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Avatar click: single-click toggles chat, double-click starts drag.
-//
-// Problem solved: the original code used the `click` event for both, but a
-// double-click fires two `click` events first, causing the chat to toggle
-// twice (open then immediately close). We use a short timer to distinguish
-// single from double clicks.
-//
-// We also use `mousedown` to detect the hit on the avatar -- this fires
-// before `click` and is not blocked by the async setIgnoreCursorEvents race.
+// mousedown on document -> hitTest the avatar via raycasting.
+// If hit and no drag -> toggle chat.
+// If hit and drag (>4px movement) -> start window dragging.
+// Clicks on UI elements are ignored (they handle their own events).
 // ---------------------------------------------------------------------------
 function setupAvatarClick(
   appWindow: ReturnType<typeof getCurrentWindow>,
   avatarManager: AvatarManager,
   chatInput: ChatInput
 ) {
-  let clickTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingClickTarget: { x: number; y: number } | null = null;
+  const DRAG_THRESHOLD = 4; // pixels of movement before it becomes a drag
+  let downPos: { x: number; y: number } | null = null;
+  let dragging = false;
 
   document.addEventListener('mousedown', (e) => {
     if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('.chat-input-container, .settings-panel, .llm-status')) return;
 
     const hitsAvatar = avatarManager.hitTest(e.clientX, e.clientY);
     if (!hitsAvatar) return;
 
-    // If we already have a pending single-click, this is the second press
-    // of a double-click -- cancel the single-click action and start drag.
-    if (clickTimer !== null) {
-      clearTimeout(clickTimer);
-      clickTimer = null;
-      pendingClickTarget = null;
-      appWindow.startDragging().catch(() => {});
-      return;
-    }
+    downPos = { x: e.clientX, y: e.clientY };
+    dragging = false;
+  });
 
-    // Record this as a potential single click. Wait a short interval to see
-    // if a second mousedown arrives (double-click).
-    pendingClickTarget = { x: e.clientX, y: e.clientY };
-    clickTimer = setTimeout(() => {
-      clickTimer = null;
-      if (pendingClickTarget) {
-        // Confirmed single click -- toggle chat
-        chatInput.toggle();
-        pendingClickTarget = null;
-      }
-    }, 250); // 250 ms is the standard OS double-click threshold
+  document.addEventListener('mousemove', (e) => {
+    if (!downPos || dragging) return;
+
+    const dx = e.clientX - downPos.x;
+    const dy = e.clientY - downPos.y;
+    if (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) {
+      dragging = true;
+      appWindow.startDragging().catch(() => {});
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (downPos && !dragging) {
+      // Click without drag -- toggle chat
+      chatInput.toggle();
+    }
+    downPos = null;
+    dragging = false;
   });
 }
 

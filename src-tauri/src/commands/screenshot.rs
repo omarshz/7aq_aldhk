@@ -1,38 +1,16 @@
 use base64::Engine;
 use image::codecs::jpeg::JpegEncoder;
 use std::io::Cursor;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
+/// Capture the screen without hiding the Dubly window.
+///
+/// The previous approach hid/showed the window on every capture, causing a
+/// visible flash every 30 seconds. Dubly appearing in its own screenshot is
+/// harmless — the LLM can see the avatar on screen and that's fine.
 #[tauri::command]
-pub async fn capture_screen(app: AppHandle) -> Result<String, String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or("Failed to get main window")?;
-
-    // Only hide the window if it is currently visible. Some platforms return an
-    // error when hiding an already-hidden window, and we must not abort in that
-    // case.  Track whether we performed the hide so we only re-show when needed.
-    let was_visible = window.is_visible().unwrap_or(true);
-
-    if was_visible {
-        // Best-effort hide -- if it fails we still attempt the capture because
-        // the worst outcome is seeing our own window in the screenshot, which
-        // is far better than returning no screenshot at all.
-        if window.hide().is_ok() {
-            // Small delay to let the compositor finish removing the window.
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        }
-    }
-
-    // Capture the screen
-    let result = capture_and_encode().await;
-
-    // Re-show the window only if we hid it
-    if was_visible {
-        let _ = window.show();
-    }
-
-    result
+pub async fn capture_screen(_app: AppHandle) -> Result<String, String> {
+    capture_and_encode().await
 }
 
 async fn capture_and_encode() -> Result<String, String> {
@@ -40,9 +18,10 @@ async fn capture_and_encode() -> Result<String, String> {
         xcap::Monitor::all().map_err(|e| format!("Failed to enumerate monitors: {e}"))?;
 
     let monitor = monitors
-        .into_iter()
+        .iter()
         .find(|m| m.is_primary().unwrap_or(false))
-        .or_else(|| xcap::Monitor::all().ok().and_then(|m| m.into_iter().next()))
+        .cloned()
+        .or_else(|| monitors.into_iter().next())
         .ok_or("No monitor found")?;
 
     let screenshot = monitor

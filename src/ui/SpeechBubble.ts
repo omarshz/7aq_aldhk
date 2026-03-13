@@ -3,6 +3,7 @@ export class SpeechBubble {
   private hideTimeout: ReturnType<typeof setTimeout> | null = null;
   private resolveHide: (() => void) | null = null;
   private typewriteInterval: ReturnType<typeof setInterval> | null = null;
+  private resolveTypewrite: (() => void) | null = null;
 
   constructor(elementId: string) {
     this.element = document.getElementById(elementId)!;
@@ -13,6 +14,10 @@ export class SpeechBubble {
     if (this.typewriteInterval !== null) {
       clearInterval(this.typewriteInterval);
       this.typewriteInterval = null;
+      if (this.resolveTypewrite) {
+        this.resolveTypewrite();
+        this.resolveTypewrite = null;
+      }
     }
 
     // Cancel any pending auto-hide and resolve its promise so the previous
@@ -58,6 +63,10 @@ export class SpeechBubble {
     if (this.typewriteInterval !== null) {
       clearInterval(this.typewriteInterval);
       this.typewriteInterval = null;
+      if (this.resolveTypewrite) {
+        this.resolveTypewrite();
+        this.resolveTypewrite = null;
+      }
     }
     if (this.hideTimeout) {
       clearTimeout(this.hideTimeout);
@@ -70,8 +79,35 @@ export class SpeechBubble {
     }
   }
 
+  showThinking(): void {
+    if (this.typewriteInterval !== null) {
+      clearInterval(this.typewriteInterval);
+      this.typewriteInterval = null;
+      if (this.resolveTypewrite) {
+        this.resolveTypewrite();
+        this.resolveTypewrite = null;
+      }
+    }
+    if (this.hideTimeout) {
+      clearTimeout(this.hideTimeout);
+      this.hideTimeout = null;
+    }
+    if (this.resolveHide) {
+      this.resolveHide();
+      this.resolveHide = null;
+    }
+
+    this.element.textContent = '';
+    const dots = document.createElement('span');
+    dots.className = 'thinking-dots';
+    dots.textContent = '...';
+    this.element.appendChild(dots);
+    this.element.classList.remove('hidden');
+  }
+
   private typewrite(text: string, delayMs: number): Promise<void> {
     return new Promise((resolve) => {
+      this.resolveTypewrite = resolve;
       let i = 0;
       this.typewriteInterval = setInterval(() => {
         if (i < text.length) {
@@ -80,6 +116,7 @@ export class SpeechBubble {
         } else {
           clearInterval(this.typewriteInterval!);
           this.typewriteInterval = null;
+          this.resolveTypewrite = null;
           resolve();
         }
       }, delayMs);

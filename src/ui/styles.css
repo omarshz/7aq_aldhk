@@ -28,16 +28,16 @@ html, body {
 /* Speech Bubble */
 .speech-bubble {
   position: fixed;
-  top: 20px;
+  top: 12px;
   left: 50%;
   transform: translateX(-50%);
-  max-width: 320px;
-  padding: 12px 16px;
+  max-width: 220px;
+  padding: 8px 10px;
   background: rgba(255, 255, 255, 0.95);
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1.4;
   color: #1a1a1a;
   pointer-events: auto;
@@ -48,14 +48,14 @@ html, body {
 .speech-bubble::after {
   content: '';
   position: absolute;
-  bottom: -10px;
+  bottom: -8px;
   left: 50%;
   transform: translateX(-50%);
   width: 0;
   height: 0;
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
-  border-top: 10px solid rgba(255, 255, 255, 0.95);
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid rgba(255, 255, 255, 0.95);
 }
 
 .speech-bubble.hidden {
@@ -69,14 +69,14 @@ html, body {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 340px;
-  padding: 24px;
+  width: 230px;
+  padding: 16px;
   background: rgba(30, 30, 30, 0.95);
-  border-radius: 16px;
+  border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   color: #e0e0e0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 13px;
+  font-size: 12px;
   pointer-events: auto;
   z-index: 200;
   backdrop-filter: blur(10px);
@@ -87,31 +87,29 @@ html, body {
 }
 
 .settings-panel h2 {
-  margin-bottom: 16px;
-  font-size: 16px;
+  margin-bottom: 12px;
+  font-size: 14px;
   font-weight: 600;
 }
 
 .settings-panel label {
   display: block;
-  margin-bottom: 4px;
-  font-size: 12px;
+  margin-bottom: 3px;
+  font-size: 11px;
   color: #aaa;
 }
 
 .settings-panel input:not([type="checkbox"]),
 .settings-panel select {
   width: 100%;
-  padding: 8px 10px;
-  margin-bottom: 12px;
+  padding: 6px 8px;
+  margin-bottom: 10px;
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
+  border-radius: 6px;
   color: #e0e0e0;
-  font-size: 13px;
+  font-size: 12px;
   outline: none;
-  /* Override the body-level user-select:none so the user can type and
-     select text inside settings inputs. */
   user-select: text;
   -webkit-user-select: text;
 }
@@ -119,16 +117,16 @@ html, body {
 .settings-panel label.checkbox-label {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-  font-size: 13px;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 12px;
   color: #e0e0e0;
   cursor: pointer;
 }
 
 .settings-panel label.checkbox-label input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   margin: 0;
   accent-color: rgba(100, 150, 255, 0.8);
   cursor: pointer;
@@ -139,15 +137,15 @@ html, body {
 }
 
 .settings-panel button {
-  padding: 8px 16px;
-  margin-top: 8px;
-  margin-right: 8px;
+  padding: 6px 12px;
+  margin-top: 6px;
+  margin-right: 6px;
   background: rgba(100, 150, 255, 0.3);
   border: 1px solid rgba(100, 150, 255, 0.4);
-  border-radius: 8px;
+  border-radius: 6px;
   color: #e0e0e0;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .settings-panel button:hover {
@@ -157,15 +155,15 @@ html, body {
 /* Chat Input */
 .chat-input-container {
   position: fixed;
-  bottom: 20px;
+  bottom: 10px;
   left: 50%;
   transform: translateX(-50%);
-  width: 340px;
+  width: 230px;
   display: flex;
-  gap: 6px;
-  padding: 6px;
+  gap: 4px;
+  padding: 4px;
   background: rgba(20, 20, 20, 0.7);
-  border-radius: 24px;
+  border-radius: 20px;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   pointer-events: auto;
@@ -181,17 +179,16 @@ html, body {
 
 .chat-input-container input {
   flex: 1;
-  padding: 10px 14px;
+  min-width: 0;
+  padding: 8px 10px;
   background: rgba(30, 30, 30, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 20px;
+  border-radius: 16px;
   color: #f0f0f0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 13px;
+  font-size: 12px;
   outline: none;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  /* Override the body-level user-select:none so the user can type and
-     select text inside the input. */
   user-select: text;
   -webkit-user-select: text;
 }
@@ -205,17 +202,52 @@ html, body {
 }
 
 .chat-input-container button {
-  padding: 8px 14px;
+  padding: 6px 10px;
   background: rgba(100, 150, 255, 0.5);
   border: 1px solid rgba(100, 150, 255, 0.6);
-  border-radius: 20px;
+  border-radius: 16px;
   color: #fff;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 11px;
   white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .chat-input-container button:hover {
   background: rgba(100, 150, 255, 0.7);
+}
+
+/* LLM Status -- hidden, only used internally */
+.llm-status {
+  display: none;
+}
+
+/* Thinking dots animation */
+.thinking-dots {
+  display: inline-block;
+  animation: pulse-dots 1.2s ease-in-out infinite;
+  letter-spacing: 2px;
+  font-size: 16px;
+}
+
+@keyframes pulse-dots {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+/* Look button (inline in chat) */
+.look-btn-inline {
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 16px;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.look-btn-inline:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
 }

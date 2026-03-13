@@ -14,8 +14,11 @@ pub fn run() {
             commands::screenshot::capture_screen,
             commands::llm::query_llm,
             commands::llm::query_llm_chat,
+            commands::llm::check_llm_health,
         ])
         .setup(|app| {
+            app.manage(reqwest::Client::new());
+
             // Tray menu
             let quit = MenuItem::with_id(app, "quit", "Quit Dubly", true, None::<&str>)?;
             let center = MenuItem::with_id(app, "center", "Move to Center", true, None::<&str>)?;

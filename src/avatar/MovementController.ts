@@ -7,13 +7,14 @@ export class MovementController {
   private currentX = 0;
   private currentY = 0;
   private isMoving = false;
+  private isSettingPosition = false;
   private moveTimer = 0;
   private nextMoveTime = 15;
   private paused = false;
   private monitorWidth = 1920;
   private monitorHeight = 1080;
-  private windowWidth = 400;
-  private windowHeight = 500;
+  private windowWidth = 250;
+  private windowHeight = 360;
 
   constructor(private avatarManager: AvatarManager) {
     this.initMonitorBounds();
@@ -87,9 +88,11 @@ export class MovementController {
       return;
     }
 
+    if (this.isSettingPosition) return;
+
     this.currentX += (dx / dist) * speed;
     this.currentY += (dy / dist) * speed;
-
+    this.isSettingPosition = true;
     try {
       const appWindow = getCurrentWindow();
       await appWindow.setPosition(
@@ -99,6 +102,8 @@ export class MovementController {
       // Window move failed, stop
       this.isMoving = false;
       this.avatarManager.setMoving(false);
+    } finally {
+      this.isSettingPosition = false;
     }
   }
 }

@@ -2,7 +2,6 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { AvatarManager } from './avatar/AvatarManager';
 import { MovementController } from './avatar/MovementController';
 import { ScreenshotPipeline } from './pipeline/ScreenshotPipeline';
-import { SettingsPanel } from './ui/SettingsPanel';
 import { ChatInput } from './ui/ChatInput';
 import { SpeechBubble } from './ui/SpeechBubble';
 
@@ -38,15 +37,23 @@ async function main() {
   // Initialize pipeline -- pass the shared speechBubble in
   const pipeline = new ScreenshotPipeline(avatarManager, movementController, speechBubble);
 
-  // Initialize settings panel
-  const settingsPanel = new SettingsPanel('settings-panel', pipeline);
-  settingsPanel.setOnSave((settings) => {
-    if (!settings.movementEnabled) {
-      movementController.pause();
-    } else {
-      movementController.resume();
+  // Perf: lazy-load the settings panel — don't create DOM until first open.
+  // The SettingsPanel module and its rendering are deferred until needed.
+  let settingsPanel: InstanceType<typeof import('./ui/SettingsPanel').SettingsPanel> | null = null;
+  async function getSettingsPanel() {
+    if (!settingsPanel) {
+      const { SettingsPanel } = await import('./ui/SettingsPanel');
+      settingsPanel = new SettingsPanel('settings-panel', pipeline);
+      settingsPanel.setOnSave((settings) => {
+        if (!settings.movementEnabled) {
+          movementController.pause();
+        } else {
+          movementController.resume();
+        }
+      });
     }
-  });
+    return settingsPanel;
+  }
 
   // Chat input -- uses the same shared speechBubble
   const chatInput = new ChatInput(avatarManager, speechBubble, pipeline.getLLMClient(), pipeline);
@@ -60,11 +67,16 @@ async function main() {
   // UI elements have pointer-events:auto, so only interactive elements receive
   // mouse events.
   // ---------------------------------------------------------------------------
-  setupAvatarClick(appWindow, avatarManager, chatInput);
+  const cleanupAvatarClick = setupAvatarClick(appWindow, avatarManager, chatInput, pipeline);
+
+  // Perf: track user interaction to let the pipeline use smart intervals
+  const interactionHandler = () => pipeline.notifyUserInteraction();
+  document.addEventListener('keydown', interactionHandler);
+  document.addEventListener('mousedown', interactionHandler);
 
   // Listen for tray pause toggle
   let isPaused = false;
-  appWindow.listen('toggle-pause', () => {
+  const unlistenPause = await appWindow.listen('toggle-pause', () => {
     isPaused = !isPaused;
     if (isPaused) {
       pipeline.pause();
@@ -89,9 +101,20 @@ async function main() {
     statusDot.title = healthy ? 'LM Studio: connected' : 'LM Studio: disconnected';
   }
   pollHealth();
-  setInterval(pollHealth, 30000);
+  const healthIntervalId = setInterval(pollHealth, 30000);
 
   console.log('Dubly initialized!');
+
+  // Expose a cleanup function on the window for proper teardown (if needed)
+  (window as any).__dublyCleanup = () => {
+    cleanupAvatarClick();
+    document.removeEventListener('keydown', interactionHandler);
+    document.removeEventListener('mousedown', interactionHandler);
+    unlistenPause();
+    clearInterval(healthIntervalId);
+    pipeline.stop();
+    avatarManager.dispose();
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -101,17 +124,20 @@ async function main() {
 // If hit and no drag -> toggle chat.
 // If hit and drag (>4px movement) -> start window dragging.
 // Clicks on UI elements are ignored (they handle their own events).
+//
+// Returns a cleanup function to remove event listeners.
 // ---------------------------------------------------------------------------
 function setupAvatarClick(
   appWindow: ReturnType<typeof getCurrentWindow>,
   avatarManager: AvatarManager,
-  chatInput: ChatInput
-) {
+  chatInput: ChatInput,
+  pipeline: ScreenshotPipeline
+): () => void {
   const DRAG_THRESHOLD = 4; // pixels of movement before it becomes a drag
   let downPos: { x: number; y: number } | null = null;
   let dragging = false;
 
-  document.addEventListener('mousedown', (e) => {
+  const onMouseDown = (e: MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest('.chat-input-container, .settings-panel, .llm-status')) return;
@@ -121,9 +147,11 @@ function setupAvatarClick(
 
     downPos = { x: e.clientX, y: e.clientY };
     dragging = false;
-  });
+    // Track interaction for smart interval
+    pipeline.notifyUserInteraction();
+  };
 
-  document.addEventListener('mousemove', (e) => {
+  const onMouseMove = (e: MouseEvent) => {
     if (!downPos || dragging) return;
 
     const dx = e.clientX - downPos.x;
@@ -132,16 +160,27 @@ function setupAvatarClick(
       dragging = true;
       appWindow.startDragging().catch(() => {});
     }
-  });
+  };
 
-  document.addEventListener('mouseup', () => {
+  const onMouseUp = () => {
     if (downPos && !dragging) {
       // Click without drag -- toggle chat
       chatInput.toggle();
     }
     downPos = null;
     dragging = false;
-  });
+  };
+
+  document.addEventListener('mousedown', onMouseDown);
+  document.addEventListener('mousemove', onMouseMove);
+  document.addEventListener('mouseup', onMouseUp);
+
+  // Return cleanup function to prevent event listener leaks
+  return () => {
+    document.removeEventListener('mousedown', onMouseDown);
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+  };
 }
 
 main().catch(console.error);

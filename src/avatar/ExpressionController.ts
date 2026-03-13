@@ -2,23 +2,57 @@ import type { VRM } from '@pixiv/three-vrm';
 import type { Mood } from '../types/avatar';
 import { MOOD_TO_EXPRESSION } from '../types/avatar';
 
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
+}
+
+function lerp(a: number, b: number, t: number): number {
+  return a + (b - a) * Math.min(t, 1);
+}
+
+const MOUTH_SHAPES = ['aa', 'oh', 'ih', 'ee', 'ou'] as const;
+
 export class ExpressionController {
   private currentMood: Mood = 'neutral';
-  private blinkTimer = 0;
-  private nextBlinkTime = 3;
-  private isBlinking = false;
-  private blinkProgress = 0;
-
-  // Target and current expression values for lerping
-  private targetExpressions: Record<string, number> = {};
-  private currentExpressions: Record<string, number> = {};
-
-  // Cache of expression names actually present on this model
   private availableExpressions = new Set<string>();
 
+  // Blink
+  private blinkTimer = 0;
+  private nextBlinkTime = 3 + Math.random() * 3;
+  private blinkPhase: 'closed' | 'opening' | 'pause' | 'idle' = 'idle';
+  private blinkElapsed = 0;
+  private isDoubleBlink = false;
+  private doubleBlinkDone = false;
+
+  // Expression
+  private currentExpressions: Record<string, number> = {};
+  private moodExpression: string | null = null;
+  private moodIntensity = 0;
+  private moodTargetIntensity = 0;
+  private moodHoldTimer = 0;
+  private moodHoldDuration = 0;
+  private moodReturning = false;
+
+  // Thinking
+  private isThinking = false;
+  private thinkingIntensity = 0;
+
+  // Talking
+  private isTalking = false;
+  private talkTimer = 0;
+  private currentMouthShape = 0;
+
+  // Eye drift
+  private eyeDriftTimer = 0;
+  private nextEyeDriftTime = 3 + Math.random() * 2;
+  private eyeYaw = 0;
+  private eyePitch = 0;
+  private eyeTargetYaw = 0;
+  private eyeTargetPitch = 0;
+  private eyeDriftHoldTimer = 0;
+  private eyeDrifting = false;
+
   constructor(private vrm: VRM) {
-    // Build the set of expressions this particular model supports.
-    // This prevents setValue calls for presets the model does not have.
     if (vrm.expressionManager) {
       for (const expr of vrm.expressionManager.expressions) {
         if (expr.expressionName) {
@@ -26,83 +60,237 @@ export class ExpressionController {
         }
       }
     }
-
-    // Log which mood expressions the model supports for debugging
-    const moodExpressions = ['happy', 'surprised', 'sad', 'angry'];
-    const missing = moodExpressions.filter(e => !this.availableExpressions.has(e));
-    if (missing.length > 0) {
-      console.warn(`VRM model missing mood expressions: ${missing.join(', ')} — using body language fallback`);
-    }
   }
 
-  /** Returns true if the loaded VRM has the given expression preset. */
-  private hasExpression(name: string): boolean {
+  private has(name: string): boolean {
     return this.availableExpressions.has(name);
   }
 
+  private setExpr(name: string, value: number): void {
+    if (!this.has(name)) return;
+    this.vrm.expressionManager?.setValue(name, value);
+    this.currentExpressions[name] = value;
+  }
+
+  // ── Public API ──────────────────────────────────────────────────────────
+
   setMood(mood: Mood): void {
-    // Clear previous mood expression target
-    const prevExpr = MOOD_TO_EXPRESSION[this.currentMood];
-    if (prevExpr && prevExpr !== 'neutral' && this.hasExpression(prevExpr)) {
-      this.targetExpressions[prevExpr] = 0;
+    // Clear previous mood expression
+    if (this.moodExpression && this.moodExpression !== 'neutral') {
+      this.setExpr(this.moodExpression, 0);
     }
 
     this.currentMood = mood;
+    const expr = MOOD_TO_EXPRESSION[mood];
 
-    // Set new mood expression target (only if model supports it)
-    const newExpr = MOOD_TO_EXPRESSION[mood];
-    if (newExpr && newExpr !== 'neutral' && this.hasExpression(newExpr)) {
-      this.targetExpressions[newExpr] = 1;
+    if (expr && expr !== 'neutral' && this.has(expr)) {
+      this.moodExpression = expr;
+      this.moodTargetIntensity = 0.5 + Math.random() * 0.2; // 0.5-0.7
+      this.moodHoldTimer = 0;
+      this.moodHoldDuration = 5 + Math.random() * 3; // 5-8 seconds
+      this.moodReturning = false;
+    } else {
+      this.moodExpression = null;
+      this.moodTargetIntensity = 0;
+      this.moodReturning = false;
     }
   }
 
   setMouth(shape: string, value: number): void {
-    if (!this.hasExpression(shape)) return;
+    if (!this.has(shape)) return;
     this.vrm.expressionManager?.setValue(shape, value);
   }
 
-  update(delta: number): void {
-    this.updateBlink(delta);
-    this.updateExpressionLerp(delta);
+  setThinking(thinking: boolean): void {
+    this.isThinking = thinking;
   }
 
-  private updateBlink(delta: number): void {
-    // Skip blinking entirely if the model has no blink expression
-    if (!this.hasExpression('blink')) return;
+  setTalking(talking: boolean): void {
+    this.isTalking = talking;
+    if (!talking) {
+      // Clear all mouth shapes
+      for (const shape of MOUTH_SHAPES) {
+        if (this.has(shape)) this.setExpr(shape, 0);
+      }
+    }
+  }
 
-    if (!this.isBlinking) {
-      this.blinkTimer += delta;
+  update(delta: number): void {
+    const dt = Math.min(delta, 0.1);
+    this.updateBlink(dt);
+    this.updateMoodExpression(dt);
+    this.updateThinking(dt);
+    this.updateTalking(dt);
+    this.updateEyeDrift(dt);
+  }
+
+  // ── Blink ───────────────────────────────────────────────────────────────
+
+  private updateBlink(dt: number): void {
+    if (!this.has('blink')) return;
+
+    if (this.blinkPhase === 'idle') {
+      this.blinkTimer += dt;
       if (this.blinkTimer >= this.nextBlinkTime) {
-        this.isBlinking = true;
-        this.blinkProgress = 0;
+        this.blinkPhase = 'closed';
+        this.blinkElapsed = 0;
         this.blinkTimer = 0;
-        this.nextBlinkTime = 2 + Math.random() * 5;
+        this.nextBlinkTime = 3 + Math.random() * 3;
+        this.isDoubleBlink = Math.random() < 0.1;
+        this.doubleBlinkDone = false;
+      }
+      return;
+    }
+
+    this.blinkElapsed += dt;
+
+    if (this.blinkPhase === 'closed') {
+      // Close over ~150ms
+      const t = Math.min(this.blinkElapsed / 0.15, 1);
+      this.setExpr('blink', t);
+      if (t >= 1) {
+        this.blinkPhase = 'opening';
+        this.blinkElapsed = 0;
+      }
+    } else if (this.blinkPhase === 'opening') {
+      // Open over ~100ms
+      const t = Math.min(this.blinkElapsed / 0.1, 1);
+      this.setExpr('blink', 1 - t);
+      if (t >= 1) {
+        this.setExpr('blink', 0);
+        if (this.isDoubleBlink && !this.doubleBlinkDone) {
+          // Brief pause then second blink
+          this.blinkPhase = 'pause';
+          this.blinkElapsed = 0;
+          this.doubleBlinkDone = true;
+        } else {
+          this.blinkPhase = 'idle';
+        }
+      }
+    } else if (this.blinkPhase === 'pause') {
+      // ~80ms pause between double blinks
+      if (this.blinkElapsed >= 0.08) {
+        this.blinkPhase = 'closed';
+        this.blinkElapsed = 0;
+      }
+    }
+  }
+
+  // ── Mood expression ─────────────────────────────────────────────────────
+
+  private updateMoodExpression(dt: number): void {
+    if (!this.moodExpression) return;
+
+    if (!this.moodReturning) {
+      // Transition to target over 300ms
+      this.moodIntensity = lerp(this.moodIntensity, this.moodTargetIntensity, dt / 0.3);
+      this.moodHoldTimer += dt;
+
+      if (this.moodHoldTimer >= this.moodHoldDuration) {
+        this.moodReturning = true;
       }
     } else {
-      this.blinkProgress += delta * 10;
-      if (this.blinkProgress <= 1) {
-        // Closing
-        this.vrm.expressionManager?.setValue('blink', this.blinkProgress);
-      } else if (this.blinkProgress <= 2) {
-        // Opening
-        this.vrm.expressionManager?.setValue('blink', 2 - this.blinkProgress);
-      } else {
-        this.vrm.expressionManager?.setValue('blink', 0);
-        this.isBlinking = false;
+      // Gradually return to neutral over ~1 second
+      this.moodIntensity = lerp(this.moodIntensity, 0, dt / 1.0);
+      if (this.moodIntensity < 0.01) {
+        this.moodIntensity = 0;
+        this.setExpr(this.moodExpression, 0);
+        this.moodExpression = null;
+        return;
       }
+    }
+
+    this.setExpr(this.moodExpression, this.moodIntensity);
+  }
+
+  // ── Thinking ────────────────────────────────────────────────────────────
+
+  private updateThinking(dt: number): void {
+    const target = this.isThinking ? 0.2 : 0;
+    this.thinkingIntensity = lerp(this.thinkingIntensity, target, dt / 0.3);
+
+    if (this.thinkingIntensity < 0.01) {
+      this.thinkingIntensity = 0;
+      return;
+    }
+
+    // Slight brow furrow via angry at low intensity
+    if (this.has('angry')) {
+      this.setExpr('angry', this.thinkingIntensity);
+    }
+
+    // Eyes slightly upward when thinking
+    if (this.vrm.lookAt) {
+      try {
+        if ('yaw' in this.vrm.lookAt && 'pitch' in this.vrm.lookAt) {
+          (this.vrm.lookAt as unknown as Record<string, number>)['pitch'] = -3 * this.thinkingIntensity;
+        }
+      } catch { /* lookAt not supported */ }
     }
   }
 
-  private updateExpressionLerp(delta: number): void {
-    const lerpSpeed = delta / 0.3; // ~300ms transition
+  // ── Talking ─────────────────────────────────────────────────────────────
 
-    for (const [name, target] of Object.entries(this.targetExpressions)) {
-      if (!this.hasExpression(name)) continue;
+  private updateTalking(dt: number): void {
+    if (!this.isTalking) return;
 
-      const current = this.currentExpressions[name] ?? 0;
-      const newVal = Math.max(0, Math.min(1, current + (target - current) * Math.min(lerpSpeed, 1)));
-      this.currentExpressions[name] = newVal;
-      this.vrm.expressionManager?.setValue(name, newVal);
+    this.talkTimer += dt;
+    if (this.talkTimer >= 0.1) {
+      this.talkTimer = 0;
+
+      // Clear previous mouth shape
+      const prevShape = MOUTH_SHAPES[this.currentMouthShape];
+      if (this.has(prevShape)) this.setExpr(prevShape, 0);
+
+      // Pick new random shape
+      this.currentMouthShape = Math.floor(Math.random() * MOUTH_SHAPES.length);
+      const shape = MOUTH_SHAPES[this.currentMouthShape];
+      const amplitude = 0.3 + Math.random() * 0.3; // 0.3-0.6
+      if (this.has(shape)) this.setExpr(shape, amplitude);
     }
+  }
+
+  // ── Eye drift ───────────────────────────────────────────────────────────
+
+  private updateEyeDrift(dt: number): void {
+    if (!this.vrm.lookAt) return;
+    if (this.isThinking) return; // thinking controls eyes
+
+    if (!this.eyeDrifting) {
+      this.eyeDriftTimer += dt;
+      if (this.eyeDriftTimer >= this.nextEyeDriftTime) {
+        this.eyeDrifting = true;
+        this.eyeDriftTimer = 0;
+        this.eyeDriftHoldTimer = 0;
+        this.nextEyeDriftTime = 3 + Math.random() * 2;
+        this.eyeTargetYaw = (Math.random() - 0.5) * 10;
+        this.eyeTargetPitch = (Math.random() - 0.5) * 5;
+      }
+    } else {
+      // Slow smooth movement toward target
+      this.eyeYaw = lerp(this.eyeYaw, this.eyeTargetYaw, dt * 2);
+      this.eyePitch = lerp(this.eyePitch, this.eyeTargetPitch, dt * 2);
+
+      this.eyeDriftHoldTimer += dt;
+      if (this.eyeDriftHoldTimer >= 1 + Math.random()) {
+        // Return to center
+        this.eyeTargetYaw = 0;
+        this.eyeTargetPitch = 0;
+
+        const dist = Math.abs(this.eyeYaw) + Math.abs(this.eyePitch);
+        if (dist < 0.3) {
+          this.eyeYaw = 0;
+          this.eyePitch = 0;
+          this.eyeDrifting = false;
+        }
+      }
+    }
+
+    try {
+      if ('yaw' in this.vrm.lookAt && 'pitch' in this.vrm.lookAt) {
+        (this.vrm.lookAt as unknown as Record<string, number>)['yaw'] = this.eyeYaw;
+        (this.vrm.lookAt as unknown as Record<string, number>)['pitch'] = this.eyePitch;
+      }
+    } catch { /* lookAt not supported */ }
   }
 }

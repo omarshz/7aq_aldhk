@@ -92,7 +92,18 @@ export class ChatInput {
 
   private async send(): Promise<void> {
     const text = this.input.value.trim();
-    if (!text || this.isProcessing) return;
+    if (this.isProcessing) return;
+    if (!text) {
+      // Shake animation on empty submit
+      this.container.classList.remove('shake');
+      // Force reflow to re-trigger animation
+      void this.container.offsetWidth;
+      this.container.classList.add('shake');
+      this.container.addEventListener('animationend', () => {
+        this.container.classList.remove('shake');
+      }, { once: true });
+      return;
+    }
 
     this.isProcessing = true;
     this.pipeline.pause();

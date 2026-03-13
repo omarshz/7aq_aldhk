@@ -6,6 +6,12 @@ import { ExpressionController } from './ExpressionController';
 import type { AvatarConfig } from '../types/avatar';
 import type { Mood } from '../types/avatar';
 
+// ─── Adaptive frame rate constants ────────────────────────────────────────────
+const FPS_ACTIVE = 60;
+const FPS_IDLE = 30;
+const FRAME_TIME_ACTIVE = 1000 / FPS_ACTIVE;
+const FRAME_TIME_IDLE = 1000 / FPS_IDLE;
+
 export class AvatarManager {
   private renderer!: THREE.WebGLRenderer;
   private scene!: THREE.Scene;
@@ -17,8 +23,20 @@ export class AvatarManager {
   private canvas: HTMLCanvasElement;
   private frameId: number = 0;
 
+  // ─── Dirty flag system: skip frames when nothing changed ──────────────
+  private dirty = true;
+  private isAnimating = false; // true when in talking/reacting/moving state
+  private lastFrameTime = 0;
+  private isVisible = true;
+
+  // ─── Bound handlers for proper cleanup ────────────────────────────────
+  private boundOnResize: () => void;
+  private boundOnVisibilityChange: () => void;
+
   constructor(private config: AvatarConfig) {
     this.canvas = document.getElementById(config.canvasId) as HTMLCanvasElement;
+    this.boundOnResize = () => this.onResize();
+    this.boundOnVisibilityChange = () => this.onVisibilityChange();
   }
 
   async init(): Promise<void> {
@@ -41,7 +59,8 @@ export class AvatarManager {
     });
     this.renderer.setClearColor(0x000000, 0);
     this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    // Perf: cap pixel ratio to 2x — higher densities waste GPU with no visible gain
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
     // Lighting
     const directional = new THREE.DirectionalLight(0xffffff, 1.2);
@@ -54,10 +73,14 @@ export class AvatarManager {
     // Load VRM
     await this.loadVRM(this.config.modelPath);
 
-    // Handle resize
-    window.addEventListener('resize', () => this.onResize());
+    // Handle resize (bound reference for proper removal)
+    window.addEventListener('resize', this.boundOnResize);
+
+    // Pause rendering entirely when window/tab is hidden
+    document.addEventListener('visibilitychange', this.boundOnVisibilityChange);
 
     // Start render loop
+    this.lastFrameTime = performance.now();
     this.animate();
   }
 
@@ -145,16 +168,42 @@ export class AvatarManager {
 
   private animate = (): void => {
     this.frameId = requestAnimationFrame(this.animate);
+
+    // Always render — this is a small always-on-top overlay widget
+
     const delta = this.clock.getDelta();
 
     if (this.vrm) {
       this.animationController?.update(delta);
       this.expressionController?.update(delta);
       this.vrm.update(delta);
+      // Idle animations (breathing, sway) always run, so mark dirty.
+      // The dirty flag is mainly useful for future optimizations like
+      // pausing when truly static (no VRM loaded).
+      this.dirty = true;
     }
 
-    this.renderer.render(this.scene, this.camera);
+    // Perf: only render when something changed
+    if (this.dirty) {
+      this.renderer.render(this.scene, this.camera);
+      this.dirty = false;
+    }
   };
+
+  private onVisibilityChange(): void {
+    this.isVisible = !document.hidden;
+    if (this.isVisible) {
+      // Reset clock to avoid huge delta spike after being hidden
+      this.clock.getDelta();
+      this.lastFrameTime = performance.now();
+      this.markDirty();
+    }
+  }
+
+  /** Mark the scene as needing a re-render (called on state changes). */
+  markDirty(): void {
+    this.dirty = true;
+  }
 
   private onResize(): void {
     const width = this.canvas.clientWidth;
@@ -167,36 +216,64 @@ export class AvatarManager {
     if (this.vrm) {
       this.frameCameraToModel(this.vrm);
     }
+    this.markDirty();
   }
 
   setMood(mood: Mood): void {
     this.expressionController?.setMood(mood);
     this.animationController?.setMood(mood);
+    this.markDirty();
   }
 
   setTalking(talking: boolean): void {
     if (talking) {
       this.animationController?.setState('talking');
+      this.isAnimating = true;
     } else {
       this.animationController?.setState('idle');
+      this.isAnimating = false;
     }
+    this.markDirty();
   }
 
   setReacting(): void {
     this.animationController?.setState('reacting');
+    this.isAnimating = true;
+    // Reacting auto-transitions to idle after ~2s (handled in AnimationController),
+    // so we schedule a downgrade of the frame rate.
+    setTimeout(() => {
+      if (this.animationController?.getState() === 'idle') {
+        this.isAnimating = false;
+      }
+    }, 2500);
+    this.markDirty();
+  }
+
+  setState(state: import('../types/avatar').AnimationState): void {
+    this.animationController?.setState(state);
+    this.isAnimating = state !== 'idle';
+    this.markDirty();
   }
 
   setMoving(moving: boolean): void {
     if (moving) {
       this.animationController?.setState('moving');
+      this.isAnimating = true;
     } else {
       this.animationController?.setState('idle');
+      this.isAnimating = false;
     }
+    this.markDirty();
+  }
+
+  setWalkSpeed(pxPerSecond: number): void {
+    this.animationController?.setWalkSpeed(pxPerSecond);
   }
 
   flipDirection(facingLeft: boolean): void {
     if (this.vrm) {
       this.vrm.scene.rotation.y = facingLeft ? Math.PI - 0.3 : Math.PI + 0.3;
+      this.markDirty();
     }
   }
 
@@ -223,6 +300,9 @@ export class AvatarManager {
 
   dispose(): void {
     cancelAnimationFrame(this.frameId);
+    // Clean up event listeners to prevent leaks
+    window.removeEventListener('resize', this.boundOnResize);
+    document.removeEventListener('visibilitychange', this.boundOnVisibilityChange);
     this.renderer.dispose();
   }
 }

@@ -1,3 +1,17 @@
+/* ── Custom Properties ── */
+:root {
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-spring: cubic-bezier(0.22, 1.2, 0.36, 1);
+  --ease-out-smooth: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-in-smooth: cubic-bezier(0.55, 0.06, 0.68, 0.19);
+  --dur-fast: 200ms;
+  --dur-normal: 280ms;
+  --dur-slow: 400ms;
+  --accent: rgba(100, 150, 255, 0.6);
+  --accent-strong: rgba(100, 150, 255, 0.8);
+  --font-stack: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -25,45 +39,180 @@ html, body {
   z-index: 1;
 }
 
-/* Speech Bubble */
+/* ═══════════════════════════════════════
+   Speech Bubble
+   ═══════════════════════════════════════ */
 .speech-bubble {
   position: fixed;
   top: 12px;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) scale(1);
+  transform-origin: center bottom;
   max-width: 220px;
+  max-height: 80px;
+  overflow: hidden;
   padding: 8px 10px;
   background: rgba(255, 255, 255, 0.95);
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  border-radius: 14px;
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.12),
+    0 0 0 0 rgba(100, 150, 255, 0);
+  font-family: var(--font-stack);
   font-size: 12px;
   line-height: 1.4;
   color: #1a1a1a;
   pointer-events: auto;
   z-index: 100;
-  transition: opacity 0.3s ease;
+  animation: bubble-enter var(--dur-slow) var(--ease-bounce) both;
+  /* Perf: hint GPU compositing for animated properties */
+  will-change: opacity, transform;
 }
 
+/* Organic curved tail using a rotated pseudo-element */
 .speech-bubble::after {
   content: '';
   position: absolute;
-  bottom: -8px;
+  bottom: -7px;
   left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 8px solid transparent;
-  border-right: 8px solid transparent;
-  border-top: 8px solid rgba(255, 255, 255, 0.95);
+  transform: translateX(-50%) rotate(2deg);
+  width: 14px;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.95);
+  clip-path: path('M 0 0 Q 3 10 7 10 Q 11 10 14 0 Z');
+}
+
+/* Gentle floating while visible */
+.speech-bubble:not(.hidden):not(.bubble-exit) {
+  animation:
+    bubble-enter var(--dur-slow) var(--ease-bounce) both,
+    bubble-float 3s ease-in-out 0.4s infinite,
+    bubble-shadow-pulse 4s ease-in-out infinite;
+}
+
+/* Exit animation */
+.speech-bubble.bubble-exit {
+  animation: bubble-exit var(--dur-normal) var(--ease-in-smooth) forwards;
 }
 
 .speech-bubble.hidden {
   opacity: 0;
   pointer-events: none;
+  transform: translateX(-50%) scale(0.85);
+  animation: none;
 }
 
-/* Settings Panel */
+/* Typewriter cursor */
+.speech-bubble .typewriter-cursor {
+  display: inline-block;
+  width: 1px;
+  height: 1em;
+  background: #1a1a1a;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  animation: cursor-blink 600ms steps(1) infinite;
+}
+
+/* Typed word pop-up effect */
+.speech-bubble .typed-word {
+  display: inline;
+  animation: word-pop-in 180ms var(--ease-bounce) both;
+}
+
+@keyframes bubble-enter {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.3);
+  }
+  60% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.06);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+}
+
+@keyframes bubble-exit {
+  0% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.7) translateY(-6px);
+  }
+}
+
+@keyframes bubble-float {
+  0%, 100% { transform: translateX(-50%) translateY(0) scale(1); }
+  50%      { transform: translateX(-50%) translateY(-2px) scale(1); }
+}
+
+@keyframes bubble-shadow-pulse {
+  0%, 100% { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 0 0 0 rgba(100, 150, 255, 0); }
+  50%      { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.10), 0 0 8px 1px rgba(100, 150, 255, 0.08); }
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0; }
+}
+
+@keyframes word-pop-in {
+  0%   { opacity: 0; transform: translateY(3px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Thinking state ── */
+.speech-bubble.thinking {
+  animation:
+    bubble-enter var(--dur-slow) var(--ease-bounce) both,
+    thinking-glow 2s ease-in-out infinite;
+}
+
+@keyframes thinking-glow {
+  0%, 100% { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 0 6px 1px rgba(100, 150, 255, 0.08); }
+  50%      { box-shadow: 0 4px 20px rgba(0, 0, 0, 0.10), 0 0 14px 3px rgba(100, 150, 255, 0.18); }
+}
+
+.thinking-dots {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.thinking-dots .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #555;
+  animation: dot-bounce 1.2s ease-in-out infinite;
+}
+
+.thinking-dots .dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.thinking-dots .dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes dot-bounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
+}
+
+/* ═══════════════════════════════════════
+   Settings Panel
+   ═══════════════════════════════════════ */
 .settings-panel {
   position: fixed;
   top: 50%;
@@ -75,7 +224,7 @@ html, body {
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   color: #e0e0e0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-stack);
   font-size: 12px;
   pointer-events: auto;
   z-index: 200;
@@ -112,6 +261,7 @@ html, body {
   outline: none;
   user-select: text;
   -webkit-user-select: text;
+  transition: border-color var(--dur-fast) ease;
 }
 
 .settings-panel label.checkbox-label {
@@ -128,7 +278,7 @@ html, body {
   width: 14px;
   height: 14px;
   margin: 0;
-  accent-color: rgba(100, 150, 255, 0.8);
+  accent-color: var(--accent-strong);
   cursor: pointer;
 }
 
@@ -146,18 +296,25 @@ html, body {
   color: #e0e0e0;
   cursor: pointer;
   font-size: 12px;
+  transition: background var(--dur-fast) ease, transform var(--dur-fast) var(--ease-bounce);
 }
 
 .settings-panel button:hover {
   background: rgba(100, 150, 255, 0.5);
 }
 
-/* Chat Input */
+.settings-panel button:active {
+  transform: scale(0.96);
+}
+
+/* ═══════════════════════════════════════
+   Chat Input
+   ═══════════════════════════════════════ */
 .chat-input-container {
   position: fixed;
   bottom: 10px;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) translateY(0);
   width: 230px;
   display: flex;
   gap: 4px;
@@ -168,13 +325,47 @@ html, body {
   -webkit-backdrop-filter: blur(12px);
   pointer-events: auto;
   z-index: 150;
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  animation: chat-slide-up var(--dur-normal) var(--ease-spring) both;
+  /* Perf: hint GPU compositing for animated properties */
+  will-change: opacity, transform;
 }
 
 .chat-input-container.hidden {
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-50%) translateY(10px);
+  transform: translateX(-50%) translateY(20px);
+  animation: chat-slide-down var(--dur-fast) var(--ease-out-smooth) forwards;
+}
+
+/* Re-trigger entrance when unhidden */
+.chat-input-container:not(.hidden) {
+  animation: chat-slide-up var(--dur-normal) var(--ease-spring) both;
+}
+
+@keyframes chat-slide-up {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+    backdrop-filter: blur(0px);
+    -webkit-backdrop-filter: blur(0px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+}
+
+@keyframes chat-slide-down {
+  0% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px);
+  }
 }
 
 .chat-input-container input {
@@ -185,16 +376,36 @@ html, body {
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 16px;
   color: #f0f0f0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--font-stack);
   font-size: 12px;
   outline: none;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   user-select: text;
   -webkit-user-select: text;
+  transition:
+    border-color var(--dur-fast) ease,
+    box-shadow var(--dur-normal) ease;
 }
 
 .chat-input-container input:focus {
-  border-color: rgba(100, 150, 255, 0.6);
+  border-color: var(--accent);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.3),
+    0 0 10px 1px rgba(100, 150, 255, 0.2);
+  animation: focus-glow-pulse 2s ease-in-out infinite;
+}
+
+@keyframes focus-glow-pulse {
+  0%, 100% {
+    box-shadow:
+      0 2px 8px rgba(0, 0, 0, 0.3),
+      0 0 8px 1px rgba(100, 150, 255, 0.15);
+  }
+  50% {
+    box-shadow:
+      0 2px 8px rgba(0, 0, 0, 0.3),
+      0 0 14px 2px rgba(100, 150, 255, 0.28);
+  }
 }
 
 .chat-input-container input::placeholder {
@@ -211,31 +422,46 @@ html, body {
   font-size: 11px;
   white-space: nowrap;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition:
+    background var(--dur-fast) ease,
+    transform var(--dur-fast) var(--ease-bounce),
+    box-shadow var(--dur-fast) ease;
 }
 
 .chat-input-container button:hover {
   background: rgba(100, 150, 255, 0.7);
+  transform: scale(1.06);
+  box-shadow: 0 3px 12px rgba(100, 150, 255, 0.25);
 }
 
-/* LLM Status -- hidden, only used internally */
+.chat-input-container button:active {
+  transform: scale(0.95);
+}
+
+/* Shake animation for empty submit */
+.chat-input-container.shake {
+  animation: input-shake 400ms var(--ease-out-smooth);
+}
+
+@keyframes input-shake {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  15%      { transform: translateX(calc(-50% + 4px)) translateY(0); }
+  30%      { transform: translateX(calc(-50% - 4px)) translateY(0); }
+  45%      { transform: translateX(calc(-50% + 3px)) translateY(0); }
+  60%      { transform: translateX(calc(-50% - 2px)) translateY(0); }
+  75%      { transform: translateX(calc(-50% + 1px)) translateY(0); }
+}
+
+/* ═══════════════════════════════════════
+   LLM Status
+   ═══════════════════════════════════════ */
 .llm-status {
   display: none;
 }
 
-/* Thinking dots animation */
-.thinking-dots {
-  display: inline-block;
-  animation: pulse-dots 1.2s ease-in-out infinite;
-  letter-spacing: 2px;
-  font-size: 16px;
-}
-
-@keyframes pulse-dots {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 1; }
-}
-
-/* Look button (inline in chat) */
+/* ═══════════════════════════════════════
+   Look Button (inline in chat)
+   ═══════════════════════════════════════ */
 .look-btn-inline {
   padding: 6px 8px;
   background: rgba(255, 255, 255, 0.1);
@@ -245,9 +471,29 @@ html, body {
   cursor: pointer;
   font-size: 10px;
   white-space: nowrap;
+  transition:
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease,
+    transform var(--dur-fast) var(--ease-bounce);
 }
 
 .look-btn-inline:hover {
   background: rgba(255, 255, 255, 0.2);
   color: #fff;
+  transform: scale(1.06);
+}
+
+.look-btn-inline:active {
+  transform: scale(0.95);
+}
+
+/* ═══════════════════════════════════════
+   Reduced Motion
+   ═══════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
